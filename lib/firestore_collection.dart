@@ -36,6 +36,7 @@ class FirestoreCollection {
 
   final bool serverOnly;
   final bool live;
+  final bool descending;
 
   bool _fetching = false;
   bool get fetching => _fetching;
@@ -48,11 +49,13 @@ class FirestoreCollection {
   SortedList<DocumentSnapshot> get documents => _documentsList;
   int get length => _documentsList.length;
 
-  StreamController<SortedList<DocumentSnapshot>> stream =
+  StreamController<SortedList<DocumentSnapshot>> _stream =
       StreamController<SortedList<DocumentSnapshot>>();
 
-  FirestoreCollection(
-    this.collection, {
+  Stream<SortedList<DocumentSnapshot>> get stream => _stream.stream;
+
+  FirestoreCollection({
+    this.collection,
     this.initializeOnStart = true,
     this.orderStartValue,
     this.orderEndValue,
@@ -60,19 +63,27 @@ class FirestoreCollection {
     this.onItemRemoved,
     this.customCompare,
     this.orderField,
+    // TODO: multiple query support
+    // TODO: merge this field with collection field
     this.query,
     this.live = false,
     this.serverOnly = true,
+    // TODO: Ascending query support
+    this.descending = true,
     this.offset,
     this.fakeRemoveMap,
     this.shouldUpdate,
-  }) {
+  })  : assert(collection != null, "Collection reference can not be null."),
+        assert(query != null, "Query can not be null."),
+        assert(orderField != null, "Order fild can not be null."),
+        assert(descending, "Ascending query is not supported yet."),
+        assert(offset != null, "Offset can not be null.") {
     restart();
   }
 
   void dispose() {
     sub?.cancel();
-    stream?.close();
+    _stream?.close();
   }
 
   void _insert(DocumentSnapshot document) {
@@ -86,7 +97,7 @@ class FirestoreCollection {
     _documentsList.add(document);
   }
 
-  Future<void> getNewestDocumentChunk() async {
+  Future<void> nextPage() async {
     if (_fetching) {
       return null;
     }
@@ -99,7 +110,7 @@ class FirestoreCollection {
       QuerySnapshot serverQS = await query
           .where(orderField, isLessThan: _lastFetched())
           .limit(offset - fetchedCount)
-          .orderBy(orderField, descending: true)
+          .orderBy(orderField, descending: descending)
           .get(GetOptions(source: Source.server));
       fetchedCount += serverQS.docs.length;
       log("only server fetched count $fetchedCount");
@@ -108,22 +119,22 @@ class FirestoreCollection {
       QuerySnapshot cacheQS = await query
           .where(orderField, isLessThan: _lastFetched())
           .limit(offset)
-          .orderBy(orderField, descending: true)
+          .orderBy(orderField, descending: descending)
           .get(GetOptions(source: Source.cache));
       fetchedCount += cacheQS.docs.length;
       log("cache fetched count $fetchedCount");
       newPage(cacheQS);
 
-      if (fetchedCount == offset) return;
-
-      QuerySnapshot serverQS = await query
-          .where(orderField, isLessThan: _lastFetched())
-          .limit(offset - fetchedCount)
-          .orderBy(orderField, descending: true)
-          .get(GetOptions(source: Source.server));
-      fetchedCount += serverQS.docs.length;
-      log("cache-after server fetched count $fetchedCount");
-      newPage(serverQS);
+      if (fetchedCount != offset) {
+        QuerySnapshot serverQS = await query
+            .where(orderField, isLessThan: _lastFetched())
+            .limit(offset - fetchedCount)
+            .orderBy(orderField, descending: descending)
+            .get(GetOptions(source: Source.server));
+        fetchedCount += serverQS.docs.length;
+        log("cache-after server fetched count ${serverQS.docs.length}");
+        newPage(serverQS);
+      }
     }
     _initialized = true;
     _fetching = false;
@@ -136,7 +147,7 @@ class FirestoreCollection {
     querySnapshot.docs.forEach((document) {
       _insert(document);
     });
-    stream.add(documents);
+    _stream.add(documents);
   }
 
   dynamic lastMap;
@@ -152,7 +163,7 @@ class FirestoreCollection {
     log("starting collection listener");
     sub = query
         .where(orderField, isGreaterThan: _newestFetched())
-        .orderBy(orderField, descending: true)
+        .orderBy(orderField, descending: descending)
         .snapshots(includeMetadataChanges: true)
         .listen((QuerySnapshot qs) {
       qs.docChanges.forEach((DocumentChange change) async {
@@ -169,7 +180,7 @@ class FirestoreCollection {
           return null;
         }
         _insert(change.doc);
-        stream.add(documents);
+        _stream.add(documents);
       });
     });
   }
@@ -201,11 +212,13 @@ class FirestoreCollection {
   Future<void> removeIndex(int index) async {
     DocumentSnapshot removed = _documentsList.removeAt(index);
     await _removeOperation(removed.id);
+    _stream.add(documents);
   }
 
   Future<void> removeID(String documentID, {Function onRemoved}) async {
     _documentsList.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
     await _removeOperation(documentID, onRemoved: onRemoved);
+    _stream.add(documents);
   }
 
   void removeAll() {
@@ -251,7 +264,7 @@ class FirestoreCollection {
     });
     await wb.commit();
     selecteds.clear();
-    stream.add(documents);
+    _stream.add(documents);
     log("remove all complated");
   }
 
@@ -339,7 +352,7 @@ class FirestoreCollection {
       customCompare ?? timeCompare,
     );
     if (initializeOnStart) {
-      await getNewestDocumentChunk();
+      await nextPage();
       collectionListener();
     }
   }
