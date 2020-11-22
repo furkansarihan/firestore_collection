@@ -13,6 +13,7 @@ dependencies:
   
   cloud_firestore: ^0.14.3
   sorted_list: ^0.1.0
+  collection: ^1.14.13
 
 dev_dependencies:
   flutter_test:
