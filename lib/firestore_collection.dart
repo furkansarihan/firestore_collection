@@ -4,329 +4,338 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:collection/collection.dart';
-import 'package:sorted_list/sorted_list.dart';
-
-export 'package:sorted_list/sorted_list.dart';
 
 class FirestoreCollection {
-  final CollectionReference collection;
-  final bool initializeOnStart;
-  final Query query;
-  final Function(DocumentSnapshot) onDocumentChange;
-  final Function(String) onItemRemoved;
-  final Function(DocumentSnapshot, DocumentSnapshot) customCompare;
-  final int offset;
-  final String orderField;
-  final Map<String, dynamic> fakeRemoveMap;
-  final Function(Map<String, dynamic>, DocumentSnapshot) shouldUpdate;
-  final dynamic orderStartValue;
-  final dynamic orderEndValue;
-
-  SortedList<DocumentSnapshot> _documentsList;
-
-  // selection
-  List<String> _selectedDocuments = [];
-  List<String> get selecteds => _selectedDocuments;
-  bool isSelected(String id) => _selectedDocuments.contains(id);
-  void select(String id) => _selectedDocuments.add(id);
-  void deSelect(String id) => _selectedDocuments.remove(id);
-
-  bool _endOfList = false;
-
-  final bool serverOnly;
-  final bool live;
-  final bool descending;
-
-  bool _fetching = false;
-  bool get fetching => _fetching;
-
-  bool _initialized = false;
-  bool get initialized => _initialized;
-
-  StreamSubscription<QuerySnapshot> sub;
-
-  SortedList<DocumentSnapshot> get documents => _documentsList;
-  int get length => _documentsList.length;
-
-  StreamController<SortedList<DocumentSnapshot>> _stream =
-      StreamController<SortedList<DocumentSnapshot>>();
-
-  Stream<SortedList<DocumentSnapshot>> get stream => _stream.stream;
-
   FirestoreCollection({
     this.collection,
     this.initializeOnStart = true,
-    this.orderStartValue,
-    this.orderEndValue,
-    this.onDocumentChange,
-    this.onItemRemoved,
-    this.customCompare,
-    this.orderField,
     // TODO: multiple query support
     // TODO: merge this field with collection field
     this.query,
+    this.queryOrder,
     this.live = false,
     this.serverOnly = true,
-    // TODO: Ascending query support
-    this.descending = true,
     this.offset,
+    this.onNewPage,
+    this.onDocumentChanged,
+    this.onItemRemoved,
     this.fakeRemoveMap,
     this.shouldUpdate,
-  })  : assert(collection != null, "Collection reference can not be null."),
-        assert(query != null, "Query can not be null."),
-        assert(orderField != null, "Order fild can not be null."),
-        assert(descending, "Ascending query is not supported yet."),
-        assert(offset != null, "Offset can not be null.") {
+  })  : assert(collection != null, 'Collection reference can not be null.'),
+        assert(queryOrder != null, 'QueryOrder can not be null.'),
+        assert(query != null, 'Query can not be null.'),
+        assert(offset != null, 'Offset can not be null.') {
+    log('firestore_collection: $hashCode. created.');
     restart();
   }
 
-  void dispose() {
-    sub?.cancel();
-    _stream?.close();
+  final CollectionReference collection;
+  final bool initializeOnStart;
+  final Query query;
+  final QueryOrder queryOrder;
+  final bool live;
+  final bool serverOnly;
+  final int offset;
+  final Function(int) onNewPage;
+  final Function(DocumentSnapshot) onDocumentChanged;
+  final Function(String) onItemRemoved;
+  final Map<String, dynamic> fakeRemoveMap;
+  final Function(DocumentSnapshot, DocumentSnapshot) shouldUpdate;
+
+  bool _endOfCollection = false;
+  bool get endOfCollection => _endOfCollection;
+  bool _fetching = false;
+  bool get fetching => _fetching;
+  bool _initialized = false;
+  bool get initialized => _initialized;
+
+  // documents
+  List<DocumentSnapshot> _docs;
+  List<DocumentSnapshot> _displayDocs;
+
+  List<DocumentSnapshot> get documents => _displayDocs ?? _docs;
+  int get length => _docs.length;
+
+  // selection
+  List<String> _selectedDocuments = [];
+  List<String> get selectedDocs => _selectedDocuments;
+  bool isSelected(String id) => _selectedDocuments.contains(id);
+  void select(String id) => _selectedDocuments.add(id);
+  void unSelect(String id) => _selectedDocuments.remove(id);
+
+  // listener
+  StreamSubscription<QuerySnapshot> _sub;
+
+  // stream
+  StreamController<List<DocumentSnapshot>> _streamController =
+      StreamController<List<DocumentSnapshot>>();
+  Stream<List<DocumentSnapshot>> get stream => _streamController?.stream;
+
+  Future<void> restart() async {
+    _endOfCollection = false;
+    _docs = List<DocumentSnapshot>();
+    if (queryOrder.hasDisplayCompare) {
+      _displayDocs = List<DocumentSnapshot>();
+    }
+    if (initializeOnStart) {
+      await nextPage();
+      collectionListener();
+    }
   }
 
-  void _insert(DocumentSnapshot document) {
-    _documentsList.removeWhere((DocumentSnapshot doc) {
-      var contains = doc.id == document.id;
-      if (contains) {
-        onDocumentChange(document);
-      }
-      return contains;
+  Future<void> dispose() async {
+    await _sub?.cancel();
+    await _streamController?.close();
+    log('firestore_collection: $hashCode. disposed.');
+  }
+
+  void _insertDoc(DocumentSnapshot document) {
+    _docs.removeWhere((DocumentSnapshot doc) {
+      return doc.id == document.id;
     });
-    _documentsList.add(document);
+    if (queryOrder.hasDisplayCompare) {
+      _displayDocs.removeWhere((DocumentSnapshot doc) {
+        return doc.id == document.id;
+      });
+    }
+    _docs.add(document);
+    _docs.sort(queryOrder.compare);
+    if (queryOrder.hasDisplayCompare) {
+      _displayDocs.add(document);
+      _displayDocs.sort(queryOrder.displayCompare);
+    }
+    _streamController?.add(documents);
+    onDocumentChanged?.call(document);
   }
 
   Future<void> nextPage() async {
     if (_fetching) {
-      return null;
+      log('already fetching');
+      return;
     }
-    if (_endOfList) {
-      return null;
+    if (_endOfCollection) {
+      log('can not fetch anymore. end of the collection');
+      return;
     }
     _fetching = true;
     int fetchedCount = 0;
     if (serverOnly) {
       QuerySnapshot serverQS = await query
-          .where(orderField, isLessThan: _lastFetched())
+          .where(queryOrder.orderField, isLessThan: _lastFetched())
+          .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset - fetchedCount)
-          .orderBy(orderField, descending: descending)
+          .orderBy(queryOrder.orderField, descending: queryOrder.descending)
           .get(GetOptions(source: Source.server));
       fetchedCount += serverQS.docs.length;
-      log("only server fetched count $fetchedCount");
-      newPage(serverQS);
+      log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
+      insertPage(serverQS);
     } else {
       QuerySnapshot cacheQS = await query
-          .where(orderField, isLessThan: _lastFetched())
+          .where(queryOrder.orderField, isLessThan: _lastFetched())
+          .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset)
-          .orderBy(orderField, descending: descending)
+          .orderBy(queryOrder.orderField, descending: queryOrder.descending)
           .get(GetOptions(source: Source.cache));
       fetchedCount += cacheQS.docs.length;
-      log("cache fetched count $fetchedCount");
-      newPage(cacheQS);
+      log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
+      insertPage(cacheQS);
 
       if (fetchedCount != offset) {
         QuerySnapshot serverQS = await query
-            .where(orderField, isLessThan: _lastFetched())
+            .where(queryOrder.orderField, isLessThan: _lastFetched())
+            .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
             .limit(offset - fetchedCount)
-            .orderBy(orderField, descending: descending)
+            .orderBy(queryOrder.orderField, descending: queryOrder.descending)
             .get(GetOptions(source: Source.server));
         fetchedCount += serverQS.docs.length;
-        log("cache-after server fetched count ${serverQS.docs.length}");
-        newPage(serverQS);
+        log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
+        insertPage(serverQS);
       }
     }
     _initialized = true;
     _fetching = false;
     if (fetchedCount < offset) {
-      _endOfList = true;
+      log('reached end of the collection');
+      _endOfCollection = true;
     }
   }
 
-  void newPage(QuerySnapshot querySnapshot) {
-    querySnapshot.docs.forEach((document) {
-      _insert(document);
-    });
-    _stream.add(documents);
+  void insertPage(QuerySnapshot querySnapshot) {
+    _docs.addAll(querySnapshot.docs);
+    _docs.sort(queryOrder.compare);
+
+    if (queryOrder.hasDisplayCompare) {
+      _displayDocs.addAll(querySnapshot.docs);
+      _displayDocs.sort(queryOrder.displayCompare);
+    }
+
+    _streamController?.add(documents);
+    onNewPage?.call(querySnapshot.docs.length);
   }
 
-  dynamic lastMap;
   void collectionListener() {
     if (!live) {
-      log("not live collection");
-      return null;
+      log('not live collection');
+      return;
     }
-    if (sub != null) {
-      log("already collection listener");
-      return null;
+    if (_sub != null) {
+      log('already listening this collection');
+      return;
     }
-    log("starting collection listener");
-    sub = query
-        .where(orderField, isGreaterThan: _newestFetched())
-        .orderBy(orderField, descending: descending)
+    log('starting collection listener');
+    _sub = query
+        .where(queryOrder.orderField, isGreaterThan: _newestFetched())
+        .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
+        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
         .snapshots(includeMetadataChanges: true)
         .listen((QuerySnapshot qs) {
       qs.docChanges.forEach((DocumentChange change) async {
-        if (lastMap != null) {
-          dynamic now = change.doc.data();
-          if (DeepCollectionEquality.unordered().equals(lastMap, now)) {
-            log("already processed");
-            return null;
-          }
+        log('changed: ${change.doc.id}. type: ${change.type}. exist: ${change.doc.exists}.');
+        if (change.type == DocumentChangeType.removed) {
+          log('removed document change.');
+          return;
         }
-        lastMap = change.doc.data();
-        if (shouldUpdate != null ? !shouldUpdate(lastMap, change.doc) : false) {
-          log("removed doc updated");
-          return null;
+        if (shouldUpdate?.call(change.doc, change.doc) ?? true) {
+          _insertDoc(change.doc);
+          return;
         }
-        _insert(change.doc);
-        _stream.add(documents);
+        log("doesn't updated by custom function.");
       });
     });
   }
 
   dynamic _lastFetched() {
-    if (_documentsList.isEmpty) {
-      return orderStartValue;
+    if (_docs.isEmpty) {
+      return;
     } else {
-      return _documentsList.last.data()[orderField];
+      return _docs.last.data()[queryOrder.orderField];
     }
   }
 
   dynamic _newestFetched() {
-    if (_documentsList.isEmpty) {
-      return orderEndValue;
+    if (_docs.isEmpty) {
+      return queryOrder.lastValue;
     } else {
-      return _documentsList.first.data()[orderField];
+      return _docs.first.data()[queryOrder.orderField];
     }
   }
 
-  String topDocumentID({String ifAbsent = ""}) {
-    if (_documentsList.isEmpty) {
-      return ifAbsent;
-    } else {
-      return _documentsList.first.id;
-    }
+  String topDocumentID({String ifAbsent = ''}) {
+    return _docs?.first?.id ?? ifAbsent;
   }
 
   Future<void> removeIndex(int index) async {
-    DocumentSnapshot removed = _documentsList.removeAt(index);
-    await _removeOperation(removed.id);
-    _stream.add(documents);
+    if (index >= documents.length || index.isNegative) {
+      log('desired removed index out of the bound');
+      return;
+    }
+    await _removeOperation(documents.elementAt(index).id);
+    DocumentSnapshot removed = documents.removeAt(index);
+    if (queryOrder.hasDisplayCompare) {
+      _docs.removeWhere((DocumentSnapshot doc) => doc.id == removed.id);
+    }
+    _streamController?.add(documents);
   }
 
-  Future<void> removeID(String documentID, {Function onRemoved}) async {
-    _documentsList.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
-    await _removeOperation(documentID, onRemoved: onRemoved);
-    _stream.add(documents);
-  }
-
-  void removeAll() {
-    int i = 0;
-    WriteBatch wb = FirebaseFirestore.instance.batch();
-    _documentsList.forEach((document) async {
-      i++;
-      if (fakeRemoveMap == null) {
-        wb.delete(collection.doc(document.id));
-      } else {
-        wb.update(collection.doc(document.id), fakeRemoveMap);
-      }
-      if (i == 50) {
-        await wb.commit();
-        wb = FirebaseFirestore.instance.batch();
-      }
-    });
-    wb.commit().then((value) {
-      //_callOnEachChunks?.call(0);
-    });
+  Future<void> removeID(String documentID) async {
+    await _removeOperation(documentID);
+    _docs.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
+    _displayDocs?.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
+    _streamController?.add(documents);
   }
 
   Future<void> removeSelecteds() async {
-    log("removeSelecteds");
-    int i = 0;
+    await removeList(selectedDocs);
+    selectedDocs.clear();
+  }
+
+  Future<void> removeList(List<String> removeList) async {
     WriteBatch wb = FirebaseFirestore.instance.batch();
-    _selectedDocuments.forEach((documentID) async {
-      _documentsList.removeWhere(
-        (DocumentSnapshot doc) => doc.id == documentID,
-      );
-      i++;
+    int batchLenght = 1;
+    List<String> removedDocs = [];
+
+    void removeBatch() {
+      _docs.removeWhere((doc) => removedDocs.contains(doc.id));
+      _displayDocs.removeWhere((doc) => removedDocs.contains(doc.id));
+      removedDocs.clear();
+    }
+
+    removeList.forEach((docID) async {
+      removedDocs.add(docID);
       if (fakeRemoveMap == null) {
-        wb.delete(collection.doc(documentID));
+        wb.delete(collection.doc(docID));
       } else {
-        log("fakemap" + fakeRemoveMap.toString());
-        wb.update(collection.doc(documentID), fakeRemoveMap);
+        wb.update(collection.doc(docID), fakeRemoveMap);
       }
-      if (i == 50) {
+      if (removedDocs.length == 20) {
         await wb.commit();
-        log("remove part complated");
+        removeBatch();
+        log('$batchLenght. batch removed.');
+        batchLenght = batchLenght + 1;
         wb = FirebaseFirestore.instance.batch();
       }
     });
+
     await wb.commit();
-    selecteds.clear();
-    _stream.add(documents);
-    log("remove all complated");
+    removeBatch();
+    log('$batchLenght. batch removed.');
+    _streamController?.add(documents);
+    log('remove list complated');
   }
 
-  Future<void> _removeOperation(String documentID, {Function onRemoved}) async {
+  Future<void> _removeOperation(String documentID) async {
     if (fakeRemoveMap == null) {
       await collection.doc(documentID).delete();
     } else {
       await collection.doc(documentID).update(fakeRemoveMap);
     }
-    onRemoved?.call();
     onItemRemoved?.call(documentID);
   }
 
-  void getFromCache(
+  bool containsId(String documentID) {
+    return _docs.any((element) => element.id == documentID);
+  }
+
+  Future<void> getFromCache(
     String documentID, {
-    Source source = Source.cache,
+    source: Source.server,
     Function(DocumentSnapshot) onGet,
-  }) {
+  }) async {
     if (documentID == null || documentID == "") {
       return null;
     }
-    DocumentSnapshot doc;
+
     try {
-      query
+      QuerySnapshot qs = await query
           .where(FieldPath.documentId, isEqualTo: documentID)
           .limit(1)
-          .get(GetOptions(source: source))
-          .then((value) {
-        if (value.docs.isNotEmpty) {
-          doc = value.docs.first;
-        }
-      }).whenComplete(() {
-        if (doc != null) {
-          _documentsList.removeWhere(
-            (DocumentSnapshot doc) => doc.id == documentID,
-          );
-          _insert(doc);
-          onGet?.call(doc);
-        }
-      }).catchError((e) {
-        log("catch error");
-      });
+          .get(GetOptions(source: source));
+      if (qs.docs.isNotEmpty) {
+        _insertDoc(qs.docs.first);
+        onGet?.call(qs.docs.first);
+      }
     } catch (e) {
-      log("$e no cache");
-      onGet?.call(null);
+      log(e.toString());
     }
-    return null;
   }
 
-  bool containsIdCache(String documentID) {
-    return _documentsList.any((element) => element.id == documentID);
+  List<String> getEachFieldValueWithKey(String fieldName) {
+    Map<String, DocumentSnapshot> returnMap = {};
+    _docs.forEach((element) {
+      if (element.data().containsKey(fieldName)) {
+        returnMap.putIfAbsent(element.data()[fieldName], () => element);
+      }
+    });
+    return returnMap.keys.toList();
   }
 
   List<DocumentSnapshot> docsHasAll(Map<String, dynamic> keyValues) {
     List<DocumentSnapshot> returnMap = List<DocumentSnapshot>();
-    _documentsList.forEach((element) {
+    _docs.forEach((element) {
       bool _insert = false;
       keyValues.forEach((key, value) {
-        if (element.data().containsKey(key)) {
-          if (element.data()[key] == value) {
-            _insert = true;
-          }
+        if (element.data()[key] == value) {
+          _insert = true;
         }
       });
       if (_insert) {
@@ -335,59 +344,37 @@ class FirestoreCollection {
     });
     return returnMap;
   }
+}
 
-  List<String> getEachFieldValueWithKey(String fieldName) {
-    Map<String, DocumentSnapshot> returnMap = Map<String, DocumentSnapshot>();
-    _documentsList.forEach((element) {
-      if (element.data().containsKey(fieldName)) {
-        returnMap.putIfAbsent(element.data()[fieldName], () => element);
-      }
-    });
-    return returnMap.keys.toList();
-  }
+class QueryOrder {
+  QueryOrder({
+    // TODO: Ascending query support
+    this.orderField,
+    this.lastValue,
+    this.descending = true,
+    this.displayCompare,
+  })  : assert(orderField != null, 'Order field can not be null.'),
+        assert(descending, 'Ascending query is not supported yet.');
 
-  Future<void> restart() async {
-    _endOfList = false;
-    _documentsList = SortedList<DocumentSnapshot>(
-      customCompare ?? timeCompare,
-    );
-    if (initializeOnStart) {
-      await nextPage();
-      collectionListener();
-    }
-  }
+  final String orderField;
+  final dynamic lastValue;
+  final bool descending;
+  final int Function(DocumentSnapshot, DocumentSnapshot) displayCompare;
 
-  int timeCompare(a, b) {
-    Timestamp tsA = timeFromMap(a.data(), orderField,
-        Timestamp.fromMillisecondsSinceEpoch(9999999999999));
-    Timestamp tsB = timeFromMap(b.data(), orderField,
-        Timestamp.fromMillisecondsSinceEpoch(9999999999999));
-    if (tsA == null) {
-      return -1;
-    }
-    if (tsB == null) {
+  bool get hasDisplayCompare => displayCompare != null;
+
+  int compare(DocumentSnapshot a, DocumentSnapshot b) {
+    dynamic fieldA = a?.data()[orderField];
+    dynamic fieldB = b?.data()[orderField];
+
+    if (fieldA == null) {
       return 1;
     }
-    return tsB.compareTo(tsA);
-  }
+    if (fieldB == null) {
+      return -1;
+    }
 
-  static Timestamp timeFromMap(
-      Map<String, dynamic> map, String key, Timestamp ifAbsent) {
-    if (ifAbsent == null) {
-      ifAbsent = Timestamp.fromMillisecondsSinceEpoch(0);
-    }
-    if (map == null) {
-      return ifAbsent;
-    }
-    if (!map.containsKey(key)) {
-      return ifAbsent;
-    }
-    if (!(map[key] is Timestamp)) {
-      return ifAbsent;
-    }
-    if (map[key] == null) {
-      return ifAbsent;
-    }
-    return map[key];
+    // Descending compare
+    return fieldB.compareTo(fieldA);
   }
 }
