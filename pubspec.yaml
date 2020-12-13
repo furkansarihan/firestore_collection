@@ -1,6 +1,6 @@
 name: firestore_collection
 description: Firestore extension with cache-first, pagination and stream builder support.
-version: 0.0.2
+version: 0.0.3
 homepage: https://github.com/furkansarihan/firestore_collection
 
 environment:

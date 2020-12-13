@@ -1,4 +1,4 @@
-## [0.0.2]
+## [0.0.3]
 
 * Breaking Change: order related parameters moved to QueryOrder object.
 * unnecessary dependencies removed
