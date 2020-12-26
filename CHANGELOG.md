@@ -1,3 +1,7 @@
+## [0.0.4]
+
+* bug-fix
+
 ## [0.0.3]
 
 * Breaking Change: order related parameters moved to QueryOrder object.

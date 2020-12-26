@@ -185,7 +185,6 @@ class FirestoreCollection {
     log('starting collection listener');
     _sub = query
         .where(queryOrder.orderField, isGreaterThan: _newestFetched())
-        .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
         .orderBy(queryOrder.orderField, descending: queryOrder.descending)
         .snapshots(includeMetadataChanges: true)
         .listen((QuerySnapshot qs) {
