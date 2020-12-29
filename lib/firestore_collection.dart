@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:rxdart/rxdart.dart';
 
 class FirestoreCollection {
   FirestoreCollection({
@@ -68,7 +69,7 @@ class FirestoreCollection {
 
   // stream
   StreamController<List<DocumentSnapshot>> _streamController =
-      StreamController<List<DocumentSnapshot>>();
+      new BehaviorSubject();
   Stream<List<DocumentSnapshot>> get stream => _streamController?.stream;
 
   Future<void> restart() async {
