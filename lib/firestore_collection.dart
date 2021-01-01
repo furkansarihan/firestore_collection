@@ -74,9 +74,9 @@ class FirestoreCollection {
 
   Future<void> restart() async {
     _endOfCollection = false;
-    _docs = List<DocumentSnapshot>();
+    _docs = [];
     if (queryOrder.hasDisplayCompare) {
-      _displayDocs = List<DocumentSnapshot>();
+      _displayDocs = [];
     }
     if (initializeOnStart) {
       await nextPage();

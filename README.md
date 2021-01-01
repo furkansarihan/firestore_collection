@@ -4,6 +4,10 @@
 
 Firestore extension with cache-first pagination and stream builder support.
 
+<p align="center">
+  <img src="https://github.com/azazadev/firestore_collection/tree/master/assets/screen.gif" height="500px">
+</p>
+
 ## Features
 - Cache-first query support.
 - Easy to use with StreamBuilder.
