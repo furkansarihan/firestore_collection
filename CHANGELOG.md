@@ -1,3 +1,8 @@
+## [0.0.5]
+
+* example added
+* bug-fixes
+
 ## [0.0.4]
 
 * bug-fix
