@@ -13,6 +13,7 @@ class FirestoreCollection {
     // TODO: multiple query support
     // TODO: merge this field with collection field
     this.query,
+    this.queryList,
     this.queryOrder,
     this.live = false,
     this.serverOnly = true,
@@ -24,8 +25,11 @@ class FirestoreCollection {
     this.shouldUpdate,
   })  : assert(collection != null, 'Collection reference can not be null.'),
         assert(queryOrder != null, 'QueryOrder can not be null.'),
-        assert(query != null, 'Query can not be null.'),
-        assert(offset != null, 'Offset can not be null.') {
+        assert(query != null || (queryList?.isNotEmpty ?? false),
+            'query and queryList can not be null together.'),
+        assert(offset != null, 'Offset can not be null.'),
+        assert((queryList?.isNotEmpty ?? false) ? !live : true,
+            'Multiple queries can not be listenable.') {
     log('firestore_collection: $hashCode. created.');
     restart();
   }
@@ -33,6 +37,7 @@ class FirestoreCollection {
   final CollectionReference collection;
   final bool initializeOnStart;
   final Query query;
+  final List<Query> queryList;
   final QueryOrder queryOrder;
   final bool live;
   final bool serverOnly;
@@ -43,8 +48,7 @@ class FirestoreCollection {
   final Map<String, dynamic> fakeRemoveMap;
   final Function(DocumentSnapshot, DocumentSnapshot) shouldUpdate;
 
-  bool _endOfCollection = false;
-  bool get endOfCollection => _endOfCollection;
+  Map<int, bool> _endOfCollectionMap = {};
   bool _fetching = false;
   bool get fetching => _fetching;
   bool _initialized = false;
@@ -69,11 +73,11 @@ class FirestoreCollection {
 
   // stream
   StreamController<List<DocumentSnapshot>> _streamController =
-      new BehaviorSubject();
+      BehaviorSubject();
   Stream<List<DocumentSnapshot>> get stream => _streamController?.stream;
 
   Future<void> restart() async {
-    _endOfCollection = false;
+    _endOfCollectionMap.clear();
     _docs = [];
     if (queryOrder.hasDisplayCompare) {
       _displayDocs = [];
@@ -110,18 +114,28 @@ class FirestoreCollection {
   }
 
   Future<void> nextPage() async {
+    if (queryList?.isEmpty ?? true) {
+      await _nextPageInternal(query);
+      return;
+    }
+    for (var q in queryList) {
+      await _nextPageInternal(q);
+    }
+  }
+
+  Future<void> _nextPageInternal(Query _q) async {
     if (_fetching) {
       log('already fetching');
       return;
     }
-    if (_endOfCollection) {
+    if (_endOfCollectionMap[_q.hashCode] ?? false) {
       log('can not fetch anymore. end of the collection');
       return;
     }
     _fetching = true;
     int fetchedCount = 0;
     if (serverOnly) {
-      QuerySnapshot serverQS = await query
+      QuerySnapshot serverQS = await _q
           .where(queryOrder.orderField, isLessThan: _lastFetched())
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset - fetchedCount)
@@ -131,7 +145,7 @@ class FirestoreCollection {
       log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
       insertPage(serverQS);
     } else {
-      QuerySnapshot cacheQS = await query
+      QuerySnapshot cacheQS = await _q
           .where(queryOrder.orderField, isLessThan: _lastFetched())
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset)
@@ -142,7 +156,7 @@ class FirestoreCollection {
       insertPage(cacheQS);
 
       if (fetchedCount != offset) {
-        QuerySnapshot serverQS = await query
+        QuerySnapshot serverQS = await _q
             .where(queryOrder.orderField, isLessThan: _lastFetched())
             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
             .limit(offset - fetchedCount)
@@ -157,7 +171,7 @@ class FirestoreCollection {
     _fetching = false;
     if (fetchedCount < offset) {
       log('reached end of the collection');
-      _endOfCollection = true;
+      _endOfCollectionMap[_q.hashCode] = true;
     }
   }
 
