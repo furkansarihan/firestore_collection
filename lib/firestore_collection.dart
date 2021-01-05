@@ -344,7 +344,7 @@ class FirestoreCollection {
   }
 
   List<DocumentSnapshot> docsHasAll(Map<String, dynamic> keyValues) {
-    List<DocumentSnapshot> returnMap = List<DocumentSnapshot>();
+    List<DocumentSnapshot> returnMap = [];
     _docs.forEach((element) {
       bool _insert = false;
       keyValues.forEach((key, value) {
