@@ -1,6 +1,6 @@
 name: firestore_collection
 description: Firestore extension with cache-first, pagination and stream builder support.
-version: 0.0.5
+version: 0.0.6
 homepage: https://github.com/furkansarihan/firestore_collection
 
 environment:
@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   
-  cloud_firestore: ^0.14.4
+  cloud_firestore: ^0.16.0
   rxdart: ^0.25.0
 
 dev_dependencies:

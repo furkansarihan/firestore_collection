@@ -1,3 +1,7 @@
+## [0.0.6]
+
+* multi query support
+
 ## [0.0.5]
 
 * example added
