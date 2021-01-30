@@ -207,7 +207,7 @@ class FirestoreCollection {
         log('changed: ${change.doc.id}. type: ${change.type}. exist: ${change.doc.exists}.');
         if (change.type == DocumentChangeType.removed) {
           log('removed document change.');
-		  _removeDoc(change.doc.id);
+          _removeDoc(change.doc.id);
           return;
         }
         if (shouldUpdate?.call(change.doc, change.doc) ?? true) {
@@ -254,6 +254,10 @@ class FirestoreCollection {
 
   Future<void> removeID(String documentID) async {
     await _removeOperation(documentID);
+    _removeDoc(documentID);
+  }
+
+  Future<void> silentRemoveID(String documentID) async {
     _removeDoc(documentID);
   }
 
@@ -310,7 +314,7 @@ class FirestoreCollection {
     _displayDocs?.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
     _streamController?.add(documents);
   }
-  
+
   bool containsId(String documentID) {
     return _docs.any((element) => element.id == documentID);
   }
