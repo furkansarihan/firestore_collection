@@ -17,6 +17,8 @@ class FirestoreCollection {
     this.queryOrder,
     this.live = false,
     this.serverOnly = true,
+    this.includeMetadataChanges = true,
+    this.ignoreRemovedUpdate = false,
     this.offset,
     this.onNewPage,
     this.onDocumentChanged,
@@ -31,7 +33,10 @@ class FirestoreCollection {
         assert((queryList?.isNotEmpty ?? false) ? !live : true,
             'Multiple queries can not be listenable.') {
     log('firestore_collection: $hashCode. created.');
-    restart();
+    _init();
+    if (initializeOnStart) {
+      restart();
+    }
   }
 
   final CollectionReference collection;
@@ -41,6 +46,8 @@ class FirestoreCollection {
   final QueryOrder queryOrder;
   final bool live;
   final bool serverOnly;
+  final bool includeMetadataChanges;
+  final bool ignoreRemovedUpdate;
   final int offset;
   final Function(int) onNewPage;
   final Function(DocumentSnapshot) onDocumentChanged;
@@ -76,16 +83,19 @@ class FirestoreCollection {
       BehaviorSubject();
   Stream<List<DocumentSnapshot>> get stream => _streamController?.stream;
 
-  Future<void> restart() async {
-    _endOfCollectionMap.clear();
+  void _init() {
     _docs = [];
     if (queryOrder.hasDisplayCompare) {
       _displayDocs = [];
     }
-    if (initializeOnStart) {
-      await nextPage();
-      collectionListener();
-    }
+  }
+
+  Future<void> restart({bool notifyWithEmptyList = false}) async {
+    _init();
+    _endOfCollectionMap.clear();
+    if (notifyWithEmptyList) _streamController.add(documents);
+    await nextPage();
+    collectionListener();
   }
 
   Future<void> dispose() async {
@@ -201,13 +211,13 @@ class FirestoreCollection {
     _sub = query
         .where(queryOrder.orderField, isGreaterThan: _newestFetched())
         .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-        .snapshots(includeMetadataChanges: true)
+        .snapshots(includeMetadataChanges: includeMetadataChanges)
         .listen((QuerySnapshot qs) {
       qs.docChanges.forEach((DocumentChange change) async {
         log('changed: ${change.doc.id}. type: ${change.type}. exist: ${change.doc.exists}.');
         if (change.type == DocumentChangeType.removed) {
           log('removed document change.');
-          _removeDoc(change.doc.id);
+          if (!ignoreRemovedUpdate) _removeDoc(change.doc.id);
           return;
         }
         if (shouldUpdate?.call(change.doc, change.doc) ?? true) {
