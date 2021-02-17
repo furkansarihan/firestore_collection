@@ -38,7 +38,7 @@ class _HomePageState extends State<HomePage> {
     // cache first
     live: true,
     // notifies to newest documents
-    query: FirebaseFirestore.instance.collection('posts'),
+    queryList: [FirebaseFirestore.instance.collection('posts')],
     queryOrder: QueryOrder(orderField: 'timestamp'),
   );
 

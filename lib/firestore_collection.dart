@@ -10,10 +10,8 @@ class FirestoreCollection {
   FirestoreCollection({
     this.collection,
     this.initializeOnStart = true,
-    // TODO: multiple query support
     // TODO: merge this field with collection field
-    this.query,
-    this.queryList,
+    List<Query> queryList,
     this.queryOrder,
     this.live = false,
     this.serverOnly = true,
@@ -27,12 +25,11 @@ class FirestoreCollection {
     this.shouldUpdate,
   })  : assert(collection != null, 'Collection reference can not be null.'),
         assert(queryOrder != null, 'QueryOrder can not be null.'),
-        assert(query != null || (queryList?.isNotEmpty ?? false),
-            'query and queryList can not be null together.'),
         assert(offset != null, 'Offset can not be null.'),
-        assert((queryList?.isNotEmpty ?? false) ? !live : true,
-            'Multiple queries can not be listenable.') {
+        assert((queryList?.isNotEmpty ?? false),
+            'queryList can not be empty or null') {
     log('firestore_collection: $hashCode. created.');
+    _queryList = queryList;
     _init();
     if (initializeOnStart) {
       restart();
@@ -41,8 +38,7 @@ class FirestoreCollection {
 
   final CollectionReference collection;
   final bool initializeOnStart;
-  final Query query;
-  final List<Query> queryList;
+  List<Query> _queryList;
   final QueryOrder queryOrder;
   final bool live;
   final bool serverOnly;
@@ -76,7 +72,7 @@ class FirestoreCollection {
   void unSelect(String id) => _selectedDocuments.remove(id);
 
   // listener
-  StreamSubscription<QuerySnapshot> _sub;
+  List<StreamSubscription<QuerySnapshot>> _subs;
 
   // stream
   StreamController<List<DocumentSnapshot>> _streamController =
@@ -85,21 +81,27 @@ class FirestoreCollection {
 
   void _init() {
     _docs = [];
+    _subs = [];
     if (queryOrder.hasDisplayCompare) {
       _displayDocs = [];
     }
   }
 
-  Future<void> restart({bool notifyWithEmptyList = false}) async {
+  Future<void> restart({
+    bool notifyWithEmptyList = false,
+    List<Query> newQueryList,
+  }) async {
+    if (newQueryList != null) _queryList = newQueryList;
+    for (var s in _subs) await s.cancel();
     _init();
     _endOfCollectionMap.clear();
     if (notifyWithEmptyList) _streamController.add(documents);
     await nextPage();
-    collectionListener();
+    await _collectionListener();
   }
 
   Future<void> dispose() async {
-    await _sub?.cancel();
+    for (var s in _subs) await s.cancel();
     await _streamController?.close();
     log('firestore_collection: $hashCode. disposed.');
   }
@@ -124,13 +126,7 @@ class FirestoreCollection {
   }
 
   Future<void> nextPage() async {
-    if (queryList?.isEmpty ?? true) {
-      await _nextPageInternal(query);
-      return;
-    }
-    for (var q in queryList) {
-      await _nextPageInternal(q);
-    }
+    for (var q in _queryList) await _nextPageInternal(q);
   }
 
   Future<void> _nextPageInternal(Query _q) async {
@@ -198,17 +194,17 @@ class FirestoreCollection {
     onNewPage?.call(querySnapshot.docs.length);
   }
 
-  void collectionListener() {
+  Future<void> _collectionListener() async {
     if (!live) {
-      log('not live collection');
+      log('not live collection: $hashCode.');
       return;
     }
-    if (_sub != null) {
-      log('already listening this collection');
-      return;
-    }
-    log('starting collection listener');
-    _sub = query
+    for (var q in _queryList) _collectionListenerInternal(q);
+  }
+
+  void _collectionListenerInternal(Query _q) {
+    log('starting collection listener: ${_q.hashCode}');
+    var _sub = _q
         .where(queryOrder.orderField, isGreaterThan: _newestFetched())
         .orderBy(queryOrder.orderField, descending: queryOrder.descending)
         .snapshots(includeMetadataChanges: includeMetadataChanges)
@@ -224,9 +220,10 @@ class FirestoreCollection {
           _insertDoc(change.doc);
           return;
         }
-        log("doesn't updated by custom function.");
+        log('does not updated by custom function.');
       });
     });
+    _subs.add(_sub);
   }
 
   dynamic _lastFetched() {
@@ -329,27 +326,24 @@ class FirestoreCollection {
     return _docs.any((element) => element.id == documentID);
   }
 
-  Future<void> getFromCache(
+  Future<DocumentSnapshot> getFromCache(
     String documentID, {
     source: Source.server,
-    Function(DocumentSnapshot) onGet,
   }) async {
-    if (documentID == null || documentID == "") {
-      return null;
-    }
-
+    if (documentID == null || documentID == '') return null;
     try {
-      QuerySnapshot qs = await query
+      QuerySnapshot qs = await collection
           .where(FieldPath.documentId, isEqualTo: documentID)
           .limit(1)
           .get(GetOptions(source: source));
       if (qs.docs.isNotEmpty) {
         _insertDoc(qs.docs.first);
-        onGet?.call(qs.docs.first);
+        return qs.docs.first;
       }
     } catch (e) {
       log(e.toString());
     }
+    return null;
   }
 
   List<String> getEachFieldValueWithKey(String fieldName) {

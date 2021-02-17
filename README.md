@@ -30,10 +30,12 @@ FirestoreCollection fireCollection = FirestoreCollection(
     offset: 15, // page size
     serverOnly: false, // cache first
     live: true, // notifies to newest docs
-    query: FirebaseFirestore.instance
-        .collection('posts')
-        .doc('post_id')
-        .collection("comments"),
+    queryList: [
+        FirebaseFirestore.instance
+            .collection('posts')
+            .doc('post_id')
+            .collection("comments"),
+    ],
     queryOrder: QueryOrder(
         orderField: 'timestamp',
     ),
