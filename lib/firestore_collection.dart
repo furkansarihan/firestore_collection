@@ -17,6 +17,7 @@ class FirestoreCollection {
     this.serverOnly = true,
     this.includeMetadataChanges = true,
     this.ignoreRemovedUpdate = false,
+    this.keepDuplicatedDocs = true,
     this.offset,
     this.onNewPage,
     this.onDocumentChanged,
@@ -44,6 +45,7 @@ class FirestoreCollection {
   final bool serverOnly;
   final bool includeMetadataChanges;
   final bool ignoreRemovedUpdate;
+  final bool keepDuplicatedDocs;
   final int offset;
   final Function(int) onNewPage;
   final Function(DocumentSnapshot) onDocumentChanged;
@@ -136,6 +138,14 @@ class FirestoreCollection {
     _docsList[_ql.indexOf(_q)].addAll(querySnapshot.docs);
 
     if (hasDisplayList) {
+      // TODO: better impl?
+      if (!keepDuplicatedDocs) {
+        querySnapshot.docs.forEach((document) {
+          _displayDocs.removeWhere((DocumentSnapshot doc) {
+            return doc.id == document.id;
+          });
+        });
+      }
       _displayDocs.addAll(querySnapshot.docs);
       if (hasDisplayCompare) _displayDocs.sort(queryOrder.displayCompare);
     }
