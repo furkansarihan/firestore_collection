@@ -139,7 +139,7 @@ class FirestoreCollection {
 
     if (hasDisplayList) {
       // TODO: better impl?
-      if (!keepDuplicatedDocs) {
+      if ((!keepDuplicatedDocs) && _ql.length > 1) {
         querySnapshot.docs.forEach((document) {
           _displayDocs.removeWhere((DocumentSnapshot doc) {
             return doc.id == document.id;
