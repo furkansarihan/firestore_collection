@@ -4,7 +4,7 @@ extension FirestoreDocumentExtension on DocumentReference {
   Future<DocumentSnapshot> stream() async {
     try {
       DocumentSnapshot ds = await this.get(GetOptions(source: Source.cache));
-      if (ds == null) return this.get(GetOptions(source: Source.server));
+      if (!ds.exists) return this.get(GetOptions(source: Source.server));
       return ds;
     } catch (_) {
       return this.get(GetOptions(source: Source.server));
