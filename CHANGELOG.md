@@ -1,3 +1,7 @@
+## [0.2.0]
+
+* nullsafety migration
+
 ## [0.0.6]
 
 * multi query support

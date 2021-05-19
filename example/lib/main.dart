@@ -19,8 +19,6 @@ class MyApp extends StatelessWidget {
 }
 
 class HomePage extends StatefulWidget {
-  HomePage({Key key}) : super(key: key);
-
   @override
   _HomePageState createState() => _HomePageState();
 }
@@ -57,8 +55,10 @@ class _HomePageState extends State<HomePage> {
         ),
         StreamBuilder(
           stream: _fireCollection.stream,
-          builder: (BuildContext context,
-              AsyncSnapshot<List<DocumentSnapshot>> snapshot) {
+          builder: (
+            BuildContext context,
+            AsyncSnapshot<List<DocumentSnapshot?>?> snapshot,
+          ) {
             return SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
@@ -78,7 +78,7 @@ class _HomePageState extends State<HomePage> {
                     onDismissed: (DismissDirection direction) {
                       setState(() {
                         _fireCollection
-                            .removeID(snapshot.data.elementAt(index).id);
+                            .removeID(snapshot.data!.elementAt(index)!.id);
                       });
                     },
                     child: AwareListItem(
@@ -88,17 +88,18 @@ class _HomePageState extends State<HomePage> {
                       child: GestureDetector(
                         child: ListTile(
                           leading: CircleAvatar(child: Icon(Icons.person)),
-                          title: Text(snapshot.data
-                              .elementAt(index)
-                              .data()['userName']),
+                          title: Text(
+                            snapshot.data?.elementAt(index)!['userName'],
+                          ),
                           subtitle: Text(
-                              snapshot.data.elementAt(index).data()['message']),
+                            snapshot.data?.elementAt(index)!['message'],
+                          ),
                         ),
                       ),
                     ),
                   );
                 },
-                childCount: snapshot.hasData ? snapshot.data.length : 0,
+                childCount: snapshot.hasData ? snapshot.data?.length : 0,
               ),
             );
           },
@@ -154,9 +155,9 @@ class AwareListItem extends StatefulWidget {
   final Widget child;
 
   const AwareListItem({
-    Key key,
-    this.itemCreated,
-    this.child,
+    Key? key,
+    required this.itemCreated,
+    required this.child,
   }) : super(key: key);
 
   @override
@@ -167,9 +168,7 @@ class _AwareListItemState extends State<AwareListItem> {
   @override
   void initState() {
     super.initState();
-    if (widget.itemCreated != null) {
-      widget.itemCreated();
-    }
+    widget.itemCreated();
   }
 
   @override

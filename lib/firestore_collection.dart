@@ -75,7 +75,7 @@ class FirestoreCollection {
   // stream
   StreamController<List<DocumentSnapshot>?> _streamController =
       BehaviorSubject();
-  Stream<List<DocumentSnapshot>?>? get stream => _streamController.stream;
+  Stream<List<DocumentSnapshot>?> get stream => _streamController.stream;
 
   bool get hasDisplayList =>
       queryOrder.displayCompare != null || _ql.length > 1;
@@ -245,7 +245,7 @@ class FirestoreCollection {
     if (_docsList[_ql.indexOf(_q)]?.isEmpty ?? true) {
       return;
     } else {
-      return _docsList[_ql.indexOf(_q)]!.last.data()![queryOrder.orderField];
+      return _docsList[_ql.indexOf(_q)]!.last[queryOrder.orderField];
     }
   }
 
@@ -253,7 +253,7 @@ class FirestoreCollection {
     if (_docsList[_ql.indexOf(_q)]?.isEmpty ?? true) {
       return queryOrder.lastValue;
     } else {
-      return _docsList[_ql.indexOf(_q)]!.first.data()![queryOrder.orderField];
+      return _docsList[_ql.indexOf(_q)]!.first[queryOrder.orderField];
     }
   }
 
@@ -328,8 +328,8 @@ class FirestoreCollection {
     Map<String?, DocumentSnapshot> returnMap = {};
     _docsList.values.forEach((_d) {
       _d.forEach((element) {
-        if (element.data()!.containsKey(fieldName)) {
-          returnMap.putIfAbsent(element.data()![fieldName], () => element);
+        if (element[fieldName] != null) {
+          returnMap.putIfAbsent(element[fieldName], () => element);
         }
       });
     });
@@ -342,7 +342,7 @@ class FirestoreCollection {
       _d.forEach((element) {
         bool _insert = false;
         keyValues.forEach((key, value) {
-          if (element.data()![key] == value) {
+          if (element[key] == value) {
             _insert = true;
           }
         });
@@ -354,9 +354,9 @@ class FirestoreCollection {
     return returnMap;
   }
 
-  int? compare(DocumentSnapshot a, DocumentSnapshot b) {
-    dynamic fieldA = a.data()![queryOrder.orderField];
-    dynamic fieldB = b.data()![queryOrder.orderField];
+  int compare(DocumentSnapshot a, DocumentSnapshot b) {
+    dynamic fieldA = a[queryOrder.orderField];
+    dynamic fieldB = b[queryOrder.orderField];
 
     if (fieldA == null) {
       return 1;
