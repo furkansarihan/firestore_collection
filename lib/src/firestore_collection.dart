@@ -6,6 +6,8 @@ import 'dart:developer';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:rxdart/rxdart.dart';
 
+import 'extensions.dart';
+
 class FirestoreCollection {
   FirestoreCollection({
     this.collection,
@@ -22,6 +24,7 @@ class FirestoreCollection {
     this.onNewPage,
     this.onDocumentChanged,
     this.onItemRemoved,
+    this.onFetchFailed,
     this.fakeRemoveMap,
     this.shouldUpdate,
   })  : assert(collection != null, 'Collection reference can not be null.'),
@@ -29,7 +32,7 @@ class FirestoreCollection {
         assert(offset != null, 'Offset can not be null.'),
         assert((queryList?.isNotEmpty ?? false),
             'queryList can not be empty or null') {
-    log('firestore_collection: $hashCode. created.');
+    log('firestore_collection: $hashCode. created.', name: _name);
     _ql = queryList;
     _init();
     if (initializeOnStart) {
@@ -50,6 +53,7 @@ class FirestoreCollection {
   final Function(int) onNewPage;
   final Function(DocumentSnapshot) onDocumentChanged;
   final Function(String) onItemRemoved;
+  final Function(bool initialized) onFetchFailed;
   final Map<String, dynamic> fakeRemoveMap;
   final Function(DocumentSnapshot, DocumentSnapshot) shouldUpdate;
 
@@ -85,6 +89,8 @@ class FirestoreCollection {
       queryOrder.displayCompare != null || _ql.length > 1;
   bool get hasDisplayCompare => queryOrder.displayCompare != null;
 
+  static String _name = 'firestore_collection';
+
   void _init() {
     _docsList = {};
     for (var i = 0; i < _ql.length; i++) {
@@ -96,24 +102,26 @@ class FirestoreCollection {
     }
   }
 
-  Future<void> restart({
+  Future<bool> restart({
     bool notifyWithEmptyList = false,
     List<Query> newQueryList,
   }) async {
+    _initialized = false;
     _fetching = false;
     if (newQueryList != null) _ql = newQueryList;
     for (var s in _subs) await s.cancel();
     _init();
     _endOfCollectionMap.clear();
     if (notifyWithEmptyList) _streamController.add(documents);
-    await nextPage();
+    bool result = await nextPage();
     await _collectionListener();
+    return result;
   }
 
   Future<void> dispose() async {
     for (var s in _subs) await s.cancel();
     await _streamController?.close();
-    log('firestore_collection: $hashCode. disposed.');
+    log('firestore_collection: $hashCode. disposed.', name: _name);
   }
 
   void _insertDoc(Query _q, DocumentSnapshot document) {
@@ -153,22 +161,25 @@ class FirestoreCollection {
 
     _streamController?.add(documents);
     onNewPage?.call(querySnapshot.docs.length);
+    _initialized = true;
   }
 
-  Future<void> nextPage() async {
+  Future<bool> nextPage() async {
+    bool result = true;
     for (Query q in _ql) {
-      await _nextPageInternal(q);
+      result = result && await _nextPageInternal(q);
     }
+    return result;
   }
 
-  Future<void> _nextPageInternal(Query _q) async {
+  Future<bool> _nextPageInternal(Query _q) async {
     if (_fetching) {
-      log('already fetching');
-      return;
+      log('already fetching', name: _name);
+      return true;
     }
     if (_endOfCollectionMap[_ql.indexOf(_q)] ?? false) {
-      log('can not fetch anymore. end of the collection');
-      return;
+      log('can not fetch anymore. end of the collection', name: _name);
+      return true;
     }
     _fetching = true;
     int fetchedCount = 0;
@@ -178,9 +189,18 @@ class FirestoreCollection {
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset - fetchedCount)
           .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-          .get(GetOptions(source: Source.server));
+          .serverGet();
+      if (serverQS == null) {
+        log('can not fetch from server', name: _name);
+        _fetching = false;
+        onFetchFailed?.call(_initialized);
+        return false;
+      }
       fetchedCount += serverQS.docs.length;
-      log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]');
+      log(
+        'server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [only-server]',
+        name: _name,
+      );
       _insertPage(_q, serverQS);
     } else {
       QuerySnapshot cacheQS = await _q
@@ -188,9 +208,18 @@ class FirestoreCollection {
           .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
           .limit(offset)
           .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-          .get(GetOptions(source: Source.cache));
+          .cacheGet();
+      if (cacheQS == null) {
+        log('can not fetch from cache', name: _name);
+        _fetching = false;
+        onFetchFailed?.call(_initialized);
+        return false;
+      }
       fetchedCount += cacheQS.docs.length;
-      log('cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]');
+      log(
+        'cache fetched count: ${cacheQS.docs.length}. total: $fetchedCount. [cache-first]',
+        name: _name,
+      );
       _insertPage(_q, cacheQS);
 
       if (fetchedCount != offset) {
@@ -199,39 +228,51 @@ class FirestoreCollection {
             .where(queryOrder.orderField, isGreaterThan: queryOrder?.lastValue)
             .limit(offset - fetchedCount)
             .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-            .get(GetOptions(source: Source.server));
+            .serverGet();
+        if (serverQS == null) {
+          log('can not fetch from server - cache first', name: _name);
+          _fetching = false;
+          onFetchFailed?.call(_initialized);
+          return false;
+        }
         fetchedCount += serverQS.docs.length;
-        log('server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]');
+        log(
+          'server fetched count: ${serverQS.docs.length}. total: $fetchedCount. [cache-first]',
+          name: _name,
+        );
         _insertPage(_q, serverQS);
       }
     }
-    _initialized = true;
     _fetching = false;
     if (fetchedCount < offset) {
-      log('reached end of the collection');
+      log('reached end of the collection', name: _name);
       _endOfCollectionMap[_ql.indexOf(_q)] = true;
     }
+    return true;
   }
 
   Future<void> _collectionListener() async {
     if (!live) {
-      log('not live collection: $hashCode.');
+      log('not live collection: $hashCode.', name: _name);
       return;
     }
     for (var q in _ql) _collectionListenerInternal(q);
   }
 
   void _collectionListenerInternal(Query _q) {
-    log('starting collection listener: ${_q.hashCode}');
+    log('starting collection listener: ${_q.hashCode}', name: _name);
     var _sub = _q
         .where(queryOrder.orderField, isGreaterThan: _newestFetched(_q))
         .orderBy(queryOrder.orderField, descending: queryOrder.descending)
         .snapshots(includeMetadataChanges: includeMetadataChanges)
         .listen((QuerySnapshot qs) {
       qs.docChanges.forEach((DocumentChange change) async {
-        log('changed: ${change.doc.id}. type: ${change.type}. exist: ${change.doc.exists}.');
+        log(
+          'changed: ${change.doc.id}. type: ${change.type}. exist: ${change.doc.exists}.',
+          name: _name,
+        );
         if (change.type == DocumentChangeType.removed) {
-          log('removed document change.');
+          log('removed document change.', name: _name);
           if (!ignoreRemovedUpdate) _removeDoc(change.doc.id);
           return;
         }
@@ -239,7 +280,7 @@ class FirestoreCollection {
           _insertDoc(_q, change.doc);
           return;
         }
-        log('does not updated by custom function.');
+        log('does not updated by custom function.', name: _name);
       });
     });
     _subs.add(_sub);
@@ -298,7 +339,7 @@ class FirestoreCollection {
       if (removedDocs.length == 20) {
         await wb.commit();
         removeBatch();
-        log('$batchLenght. batch removed.');
+        log('$batchLenght. batch removed.', name: _name);
         batchLenght = batchLenght + 1;
         wb = FirebaseFirestore.instance.batch();
       }
@@ -306,9 +347,9 @@ class FirestoreCollection {
 
     await wb.commit();
     removeBatch();
-    log('$batchLenght. batch removed.');
+    log('$batchLenght. batch removed.', name: _name);
     _streamController?.add(documents);
-    log('remove list complated');
+    log('remove list complated', name: _name);
   }
 
   Future<void> _removeOperation(String documentID) async {
