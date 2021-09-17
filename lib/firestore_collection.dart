@@ -96,6 +96,7 @@ class FirestoreCollection {
     bool notifyWithEmptyList = false,
     List<Query>? newQueryList,
   }) async {
+    _fetching = false;
     if (newQueryList != null) _ql = newQueryList;
     for (var s in _subs) await s.cancel();
     _init();
