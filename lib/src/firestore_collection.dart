@@ -47,7 +47,10 @@ class FirestoreCollection {
   final bool keepDuplicatedDocs;
   final int offset;
   final Function(int)? onNewPage;
-  final Function(DocumentSnapshot)? onDocumentChanged;
+  final Function(
+    DocumentSnapshot doc,
+    DocumentChangeType type,
+  )? onDocumentChanged;
   final Function(String)? onItemRemoved;
   final Function(bool initialized)? onFetchFailed;
   final Map<String, dynamic>? fakeRemoveMap;
@@ -119,7 +122,11 @@ class FirestoreCollection {
     log('firestore_collection: $hashCode. disposed.', name: _name);
   }
 
-  void _insertDoc(Query _q, DocumentSnapshot document) {
+  void _insertDoc(
+    Query _q,
+    DocumentSnapshot document,
+    DocumentChangeType type,
+  ) {
     _docsList[_ql.indexOf(_q)]!.removeWhere((DocumentSnapshot doc) {
       return doc.id == document.id;
     });
@@ -136,7 +143,7 @@ class FirestoreCollection {
       if (hasDisplayCompare) _displayDocs!.sort(queryOrder.displayCompare);
     }
     _streamController.add(documents);
-    onDocumentChanged?.call(document);
+    onDocumentChanged?.call(document, type);
   }
 
   void _insertPage(Query _q, QuerySnapshot querySnapshot) {
@@ -274,7 +281,7 @@ class FirestoreCollection {
           return;
         }
         if (shouldUpdate?.call(change.doc, change.doc) ?? true) {
-          _insertDoc(_q, change.doc);
+          _insertDoc(_q, change.doc, change.type);
           return;
         }
         log('does not updated by custom function.', name: _name);
