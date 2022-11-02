@@ -131,7 +131,7 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
             actions: <Widget>[
-              new FlatButton(
+              new MaterialButton(
                 child: new Text('Submit'),
                 onPressed: () async {
                   await FirebaseFirestore.instance.collection('posts').add({

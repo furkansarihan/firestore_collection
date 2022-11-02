@@ -136,8 +136,7 @@ class FirestoreCollection {
       });
     }
     _docsList[_ql.indexOf(_q)]!.add(document);
-    _docsList[_ql.indexOf(_q)]!
-        .sort(compare as int Function(DocumentSnapshot, DocumentSnapshot)?);
+    _docsList[_ql.indexOf(_q)]!.sort(compare);
     if (hasDisplayList) {
       _displayDocs!.add(document);
       if (hasDisplayCompare) _displayDocs!.sort(queryOrder.displayCompare);
@@ -187,12 +186,15 @@ class FirestoreCollection {
     _fetching = true;
     int fetchedCount = 0;
     if (serverOnly) {
-      QuerySnapshot? serverQS = await _q
-          .where(queryOrder.orderField, isLessThan: _lastFetched(_q))
-          .where(queryOrder.orderField, isGreaterThan: queryOrder.lastValue)
-          .limit(offset - fetchedCount)
-          .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-          .serverGet();
+      final lastDoc = _lastFetchedDoc(_q);
+      Query _qq = _q.orderBy(
+        queryOrder.orderField,
+        descending: queryOrder.descending,
+      );
+      if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
+
+      QuerySnapshot? serverQS =
+          await _qq.limit(offset - fetchedCount).serverGet();
       if (serverQS == null) {
         log('can not fetch from server', name: _name);
         _fetching = false;
@@ -206,12 +208,14 @@ class FirestoreCollection {
       );
       _insertPage(_q, serverQS);
     } else {
-      QuerySnapshot? cacheQS = await _q
-          .where(queryOrder.orderField, isLessThan: _lastFetched(_q))
-          .where(queryOrder.orderField, isGreaterThan: queryOrder.lastValue)
-          .limit(offset)
-          .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-          .cacheGet();
+      final lastDoc = _lastFetchedDoc(_q);
+      Query _qq = _q.orderBy(
+        queryOrder.orderField,
+        descending: queryOrder.descending,
+      );
+      if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
+
+      QuerySnapshot? cacheQS = await _qq.limit(offset).cacheGet();
       if (cacheQS == null) {
         log('can not fetch from cache', name: _name);
         _fetching = false;
@@ -226,12 +230,15 @@ class FirestoreCollection {
       _insertPage(_q, cacheQS);
 
       if (fetchedCount != offset) {
-        QuerySnapshot? serverQS = await _q
-            .where(queryOrder.orderField, isLessThan: _lastFetched(_q))
-            .where(queryOrder.orderField, isGreaterThan: queryOrder.lastValue)
-            .limit(offset - fetchedCount)
-            .orderBy(queryOrder.orderField, descending: queryOrder.descending)
-            .serverGet();
+        final lastDoc = _lastFetchedDoc(_q);
+        Query _qq = _q.orderBy(
+          queryOrder.orderField,
+          descending: queryOrder.descending,
+        );
+        if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
+
+        QuerySnapshot? serverQS =
+            await _qq.limit(offset - fetchedCount).serverGet();
         if (serverQS == null) {
           log('can not fetch from server - cache first', name: _name);
           _fetching = false;
@@ -265,9 +272,14 @@ class FirestoreCollection {
 
   void _collectionListenerInternal(Query _q) {
     log('starting collection listener: ${_q.hashCode}', name: _name);
-    var _sub = _q
-        .where(queryOrder.orderField, isGreaterThan: _newestFetched(_q))
-        .orderBy(queryOrder.orderField, descending: queryOrder.descending)
+    final firstDoc = _firstFetchedDoc(_q);
+    Query _qq = _q.orderBy(
+      queryOrder.orderField,
+      descending: !queryOrder.descending,
+    );
+    if (firstDoc != null) _qq = _qq.startAfterDocument(firstDoc);
+
+    var _sub = _qq
         .snapshots(includeMetadataChanges: includeMetadataChanges)
         .listen((QuerySnapshot qs) {
       qs.docChanges.forEach((DocumentChange change) async {
@@ -290,19 +302,19 @@ class FirestoreCollection {
     _subs.add(_sub);
   }
 
-  dynamic _lastFetched(Query _q) {
+  DocumentSnapshot? _lastFetchedDoc(Query _q) {
     if (_docsList[_ql.indexOf(_q)]?.isEmpty ?? true) {
-      return;
+      return null;
     } else {
-      return _docsList[_ql.indexOf(_q)]!.last[queryOrder.orderField];
+      return _docsList[_ql.indexOf(_q)]!.last;
     }
   }
 
-  dynamic _newestFetched(Query _q) {
+  DocumentSnapshot? _firstFetchedDoc(Query _q) {
     if (_docsList[_ql.indexOf(_q)]?.isEmpty ?? true) {
-      return queryOrder.lastValue;
+      return null;
     } else {
-      return _docsList[_ql.indexOf(_q)]!.first[queryOrder.orderField];
+      return _docsList[_ql.indexOf(_q)]!.first;
     }
   }
 
@@ -422,14 +434,11 @@ class FirestoreCollection {
 class QueryOrder {
   QueryOrder({
     required this.orderField,
-    this.lastValue,
-    // TODO: Ascending query support
-    // this.descending = true,
+    this.descending = true,
     this.displayCompare,
   });
 
   final String orderField;
-  final dynamic lastValue;
-  final bool descending = true;
+  final bool descending;
   final int Function(DocumentSnapshot, DocumentSnapshot)? displayCompare;
 }
