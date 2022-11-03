@@ -14,7 +14,7 @@ class FirestoreCollection {
     this.initializeOnStart = true,
     // TODO: merge this field with collection field
     required List<Query> queryList,
-    required this.queryOrder,
+    required QueryOrder queryOrder,
     this.live = false,
     this.serverOnly = true,
     this.includeMetadataChanges = true,
@@ -30,6 +30,7 @@ class FirestoreCollection {
   }) : assert((queryList.isNotEmpty), 'queryList can not be empty.') {
     log('firestore_collection: $hashCode. created.', name: _name);
     _ql = queryList;
+    _qo = queryOrder;
     _init();
     if (initializeOnStart) {
       restart();
@@ -39,7 +40,7 @@ class FirestoreCollection {
   final CollectionReference collection;
   final bool initializeOnStart;
   late List<Query> _ql;
-  final QueryOrder queryOrder;
+  late QueryOrder _qo;
   final bool live;
   final bool serverOnly;
   final bool includeMetadataChanges;
@@ -84,9 +85,8 @@ class FirestoreCollection {
       BehaviorSubject();
   Stream<List<DocumentSnapshot>?> get stream => _streamController.stream;
 
-  bool get hasDisplayList =>
-      queryOrder.displayCompare != null || _ql.length > 1;
-  bool get hasDisplayCompare => queryOrder.displayCompare != null;
+  bool get hasDisplayList => _qo.displayCompare != null || _ql.length > 1;
+  bool get hasDisplayCompare => _qo.displayCompare != null;
 
   static String _name = 'firestore_collection';
 
@@ -104,9 +104,11 @@ class FirestoreCollection {
   Future<bool> restart({
     bool notifyWithEmptyList = false,
     List<Query>? newQueryList,
+    QueryOrder? newQueryOrder,
   }) async {
     _fetching = false;
     if (newQueryList != null) _ql = newQueryList;
+    if (newQueryOrder != null) _qo = newQueryOrder;
     for (var s in _subs) await s.cancel();
     _init();
     _endOfCollectionMap.clear();
@@ -139,7 +141,7 @@ class FirestoreCollection {
     _docsList[_ql.indexOf(_q)]!.sort(compare);
     if (hasDisplayList) {
       _displayDocs!.add(document);
-      if (hasDisplayCompare) _displayDocs!.sort(queryOrder.displayCompare);
+      if (hasDisplayCompare) _displayDocs!.sort(_qo.displayCompare);
     }
     _streamController.add(documents);
     onDocumentChanged?.call(document, type);
@@ -158,7 +160,7 @@ class FirestoreCollection {
         });
       }
       _displayDocs!.addAll(querySnapshot.docs);
-      if (hasDisplayCompare) _displayDocs!.sort(queryOrder.displayCompare);
+      if (hasDisplayCompare) _displayDocs!.sort(_qo.displayCompare);
     }
 
     _streamController.add(documents);
@@ -188,8 +190,8 @@ class FirestoreCollection {
     if (serverOnly) {
       final lastDoc = _lastFetchedDoc(_q);
       Query _qq = _q.orderBy(
-        queryOrder.orderField,
-        descending: queryOrder.descending,
+        _qo.orderField,
+        descending: _qo.descending,
       );
       if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
@@ -210,8 +212,8 @@ class FirestoreCollection {
     } else {
       final lastDoc = _lastFetchedDoc(_q);
       Query _qq = _q.orderBy(
-        queryOrder.orderField,
-        descending: queryOrder.descending,
+        _qo.orderField,
+        descending: _qo.descending,
       );
       if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
@@ -232,8 +234,8 @@ class FirestoreCollection {
       if (fetchedCount != offset) {
         final lastDoc = _lastFetchedDoc(_q);
         Query _qq = _q.orderBy(
-          queryOrder.orderField,
-          descending: queryOrder.descending,
+          _qo.orderField,
+          descending: _qo.descending,
         );
         if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
@@ -274,8 +276,8 @@ class FirestoreCollection {
     log('starting collection listener: ${_q.hashCode}', name: _name);
     final firstDoc = _firstFetchedDoc(_q);
     Query _qq = _q.orderBy(
-      queryOrder.orderField,
-      descending: !queryOrder.descending,
+      _qo.orderField,
+      descending: !_qo.descending,
     );
     if (firstDoc != null) _qq = _qq.startAfterDocument(firstDoc);
 
@@ -416,8 +418,8 @@ class FirestoreCollection {
   }
 
   int compare(DocumentSnapshot a, DocumentSnapshot b) {
-    dynamic fieldA = a[queryOrder.orderField];
-    dynamic fieldB = b[queryOrder.orderField];
+    dynamic fieldA = a[_qo.orderField];
+    dynamic fieldB = b[_qo.orderField];
 
     if (fieldA == null) {
       return 1;
