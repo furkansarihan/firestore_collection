@@ -379,6 +379,15 @@ class FirestoreCollection {
     onItemRemoved?.call(documentID);
   }
 
+  Future<void> getDoc(String documentID) async {
+    final snap = await collection.doc(documentID).get();
+    if (!snap.exists) {
+      log('requested doc is not exist. id: $documentID', name: _name);
+      return;
+    }
+    _insertDoc(_ql.first, snap, DocumentChangeType.added);
+  }
+
   Future<void> _removeDoc(String documentID) async {
     _docsList.values.forEach((_d) {
       _d.removeWhere((DocumentSnapshot doc) => doc.id == documentID);
@@ -422,14 +431,13 @@ class FirestoreCollection {
     dynamic fieldB = b[_qo.orderField];
 
     if (fieldA == null) {
-      return 1;
+      return _qo.descending ? 1 : -1;
     }
     if (fieldB == null) {
-      return -1;
+      return _qo.descending ? -1 : 1;
     }
 
-    // Descending compare
-    return fieldB.compareTo(fieldA);
+    return _qo.descending ? fieldB.compareTo(fieldA) : fieldA.compareTo(fieldB);
   }
 }
 
