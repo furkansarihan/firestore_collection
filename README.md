@@ -27,7 +27,7 @@ FirestoreCollection fireCollection = FirestoreCollection(
         .doc('post_id')
         .collection("comments"),
     initializeOnStart: true, // first page will be fetched immediately
-    offset: 15, // page size
+    pageSize: 15, // page size
     serverOnly: false, // cache first
     live: true, // notifies to newest docs
     queryList: [

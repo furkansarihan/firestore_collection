@@ -20,7 +20,7 @@ class FirestoreCollection {
     this.includeMetadataChanges = true,
     this.ignoreRemovedUpdate = false,
     this.keepDuplicatedDocs = true,
-    required this.offset,
+    required int pageSize,
     this.onNewPage,
     this.onDocumentChanged,
     this.onItemRemoved,
@@ -31,6 +31,7 @@ class FirestoreCollection {
     log('firestore_collection: $hashCode. created.', name: _name);
     _ql = queryList;
     _qo = queryOrder;
+    _pageSize = pageSize;
     _init();
     if (initializeOnStart) {
       restart();
@@ -46,7 +47,7 @@ class FirestoreCollection {
   final bool includeMetadataChanges;
   final bool ignoreRemovedUpdate;
   final bool keepDuplicatedDocs;
-  final int offset;
+  late int _pageSize;
   final Function(int)? onNewPage;
   final Function(
     DocumentSnapshot doc,
@@ -175,16 +176,15 @@ class FirestoreCollection {
     _initialized = true;
   }
 
-  // TODO: custom offset parameter
-  Future<bool> nextPage() async {
+  Future<bool> nextPage({int? pageSize}) async {
     bool result = true;
     for (Query q in _ql) {
-      result = result && await _nextPageInternal(q);
+      result = result && await _nextPageInternal(q, pageSize ?? _pageSize);
     }
     return result;
   }
 
-  Future<bool> _nextPageInternal(Query _q) async {
+  Future<bool> _nextPageInternal(Query _q, int pageSize) async {
     if (_fetching) {
       log('already fetching', name: _name);
       return true;
@@ -204,7 +204,7 @@ class FirestoreCollection {
       if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
       QuerySnapshot? serverQS =
-          await _qq.limit(offset - fetchedCount).serverGet();
+          await _qq.limit(pageSize - fetchedCount).serverGet();
       if (serverQS == null) {
         log('can not fetch from server', name: _name);
         _fetching = false;
@@ -225,7 +225,7 @@ class FirestoreCollection {
       );
       if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
-      QuerySnapshot? cacheQS = await _qq.limit(offset).cacheGet();
+      QuerySnapshot? cacheQS = await _qq.limit(pageSize).cacheGet();
       if (cacheQS == null) {
         log('can not fetch from cache', name: _name);
         _fetching = false;
@@ -239,7 +239,7 @@ class FirestoreCollection {
       );
       _insertPage(_q, cacheQS);
 
-      if (fetchedCount != offset) {
+      if (fetchedCount != pageSize) {
         final lastDoc = _lastFetchedDoc(_q);
         Query _qq = _q.orderBy(
           _qo.orderField,
@@ -248,7 +248,7 @@ class FirestoreCollection {
         if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
 
         QuerySnapshot? serverQS =
-            await _qq.limit(offset - fetchedCount).serverGet();
+            await _qq.limit(pageSize - fetchedCount).serverGet();
         if (serverQS == null) {
           log('can not fetch from server - cache first', name: _name);
           _fetching = false;
@@ -265,7 +265,7 @@ class FirestoreCollection {
     }
     _initialized = true;
     _fetching = false;
-    if (fetchedCount < offset) {
+    if (fetchedCount < pageSize) {
       log('reached end of the collection', name: _name);
       _endOfCollectionMap[_ql.indexOf(_q)] = true;
     }

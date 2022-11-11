@@ -30,7 +30,7 @@ class _HomePageState extends State<HomePage> {
     collection: FirebaseFirestore.instance.collection('posts'),
     initializeOnStart: true,
     // first page will fetched immediately
-    offset: 15,
+    pageSize: 15,
     // page size
     serverOnly: false,
     // cache first
