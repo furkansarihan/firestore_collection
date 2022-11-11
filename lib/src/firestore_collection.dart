@@ -63,6 +63,13 @@ class FirestoreCollection {
   bool _initialized = false;
   bool get initialized => _initialized;
 
+  bool get endOfCollection {
+    for (var value in _endOfCollectionMap.values) {
+      if (!value) return false;
+    }
+    return true;
+  }
+
   // documents
   late Map<int, List<DocumentSnapshot>> _docsList;
   List<DocumentSnapshot>? _displayDocs;
@@ -168,6 +175,7 @@ class FirestoreCollection {
     _initialized = true;
   }
 
+  // TODO: custom offset parameter
   Future<bool> nextPage() async {
     bool result = true;
     for (Query q in _ql) {
