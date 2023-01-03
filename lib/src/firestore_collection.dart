@@ -288,8 +288,13 @@ class FirestoreCollection {
       _qo.orderField,
       descending: _qo.descendingLive,
     );
-    if (firstDoc != null) _qq = _qq.startAfterDocument(firstDoc);
-
+    if (firstDoc != null && firstDoc.data() != null) {
+      final firstData = firstDoc.data() as Map<String, dynamic>;
+      if (firstData[_qo.orderField] != null) {
+        _qq =
+            _qq.where(_qo.orderField, isGreaterThan: firstData[_qo.orderField]);
+      }
+    }
     var _sub = _qq
         .snapshots(includeMetadataChanges: includeMetadataChanges)
         .listen((QuerySnapshot qs) {
