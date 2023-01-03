@@ -65,10 +65,7 @@ class FirestoreCollection {
   bool get initialized => _initialized;
 
   bool get endOfCollection {
-    for (var value in _endOfCollectionMap.values) {
-      if (!value) return false;
-    }
-    return true;
+    return _endOfCollectionMap.length == _ql.length;
   }
 
   // documents
