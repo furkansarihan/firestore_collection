@@ -202,6 +202,7 @@ class FirestoreCollection {
         descending: _qo.descending,
       );
       if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
+      // TODO: start at value
 
       QuerySnapshot? serverQS =
           await _qq.limit(pageSize - fetchedCount).serverGet();
@@ -285,7 +286,7 @@ class FirestoreCollection {
     final firstDoc = _firstFetchedDoc(_q);
     Query _qq = _q.orderBy(
       _qo.orderField,
-      descending: !_qo.descending,
+      descending: _qo.descendingLive,
     );
     if (firstDoc != null) _qq = _qq.startAfterDocument(firstDoc);
 
@@ -453,10 +454,12 @@ class QueryOrder {
   QueryOrder({
     required this.orderField,
     this.descending = true,
+    this.descendingLive = true,
     this.displayCompare,
   });
 
   final String orderField;
   final bool descending;
+  final bool descendingLive;
   final int Function(DocumentSnapshot, DocumentSnapshot)? displayCompare;
 }
