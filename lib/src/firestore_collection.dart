@@ -192,13 +192,15 @@ class FirestoreCollection {
     }
     _fetching = true;
     int fetchedCount = 0;
+
+    final lastDoc = _lastFetchedDoc(_q);
+    Query _qq = _q.orderBy(
+      _qo.orderField,
+      descending: _qo.descending,
+    );
+    if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
+
     if (serverOnly) {
-      final lastDoc = _lastFetchedDoc(_q);
-      Query _qq = _q.orderBy(
-        _qo.orderField,
-        descending: _qo.descending,
-      );
-      if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
       // TODO: start at value
 
       QuerySnapshot? serverQS =
@@ -216,13 +218,6 @@ class FirestoreCollection {
       );
       _insertPage(_q, serverQS);
     } else {
-      final lastDoc = _lastFetchedDoc(_q);
-      Query _qq = _q.orderBy(
-        _qo.orderField,
-        descending: _qo.descending,
-      );
-      if (lastDoc != null) _qq = _qq.startAfterDocument(lastDoc);
-
       QuerySnapshot? cacheQS = await _qq.limit(pageSize).cacheGet();
       if (cacheQS == null) {
         log('can not fetch from cache', name: _name);

@@ -11,8 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
   
-  cloud_firestore: ^4.0.3
-  rxdart: ^0.27.5
+  cloud_firestore: ^6.0.1
+  rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:
